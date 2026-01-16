@@ -1,0 +1,417 @@
+# Rozwiązania Zadań: Programowanie Systemowe w C (Linux/Unix)
+
+Ten dokument zawiera rozwiązania trzech zadań dotyczących niskopoziomowych operacji na plikach, komunikacji międzyprocesowej (IPC) przy użyciu kolejki FIFO oraz analizy struktury katalogów. Każde rozwiązanie opatrzone jest szczegółowym komentarzem wyjaśniającym działanie kodu.
+
+---
+
+## Zadanie 1: Konfigurator z uprawnieniami (File I/O & Permissions)
+
+**Cel:** Program pobiera od użytkownika poziom dostępu, nazwę parametru i wartość, a następnie zapisuje to do odpowiedniego pliku konfiguracyjnego, ustawiając mu specyficzne uprawnienia systemowe (`chmod`).
+
+### Wyjaśnienie rozwiązania
+1.  **Bezpieczne wejście (`fgets`):** Użyto `fgets` zamiast `scanf`, aby bezpiecznie wczytać całą linię tekstu i uniknąć przepełnienia bufora. Funkcja `strcspn` służy do usunięcia znaku nowej linii (`\n`), który `fgets` dołącza do stringa.
+2.  **Wybór pliku:** Na podstawie wpisanego poziomu (`system`, `user`, `temp`) program dobiera nazwę pliku i uprawnienia w systemie ósemkowym (np. `0600` – tylko właściciel).
+3.  **Zmiana uprawnień (`chmod`):** Po zapisaniu danych, funkcja systemowa `chmod` ustawia uprawnienia pliku na poziomie systemu plików.
+
+### Kod źródłowy (zad1.c)
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+int main() {
+    char level[50];
+    char param[100];
+    char value[300];
+
+    /* 1. Pobranie danych wejściowych */
+    if (!fgets(level, sizeof(level), stdin)) return 1;
+    if (!fgets(param, sizeof(param), stdin)) return 1;
+    if (!fgets(value, sizeof(value), stdin)) return 1;
+
+    /* 2. Usuwanie znaków nowej linii */
+    level[strcspn(level, "\n")] = 0;
+    param[strcspn(param, "\n")] = 0;
+    value[strcspn(value, "\n")] = 0;
+
+    char filename[50];
+    mode_t permissions;
+
+    /* 3. Rozpoznanie poziomu dostępu */
+    if (strcmp(level, "system") == 0) {
+        strcpy(filename, "config_system.cfg");
+        permissions = 0644; // rw-r--r--
+    } else if (strcmp(level, "user") == 0) {
+        strcpy(filename, "config_user.cfg");
+        permissions = 0600; // rw-------
+    } else if (strcmp(level, "temp") == 0) {
+        strcpy(filename, "config_temp.cfg");
+        permissions = 0666; // rw-rw-rw-
+    } else {
+        fprintf(stderr, "Błąd: nieprawidłowy poziom dostępu\n");
+        return 1;
+    }
+
+    /* 4. Otwarcie pliku (append) */
+    FILE *f = fopen(filename, "a");
+    if (!f) {
+        perror("Błąd otwarcia pliku");
+        return 1;
+    }
+
+    /* 5. Zapis do pliku */
+    fprintf(f, "%s=%s\n", param, value);
+    fclose(f);
+
+    /* 6. Ustawienie uprawnień */
+    if (chmod(filename, permissions) != 0) {
+        fprintf(stderr, "Ostrzeżenie: nie udało się ustawić uprawnień\n");
+    }
+
+    printf("Zapisano parametr do pliku %s z uprawnieniami %o\n", filename, permissions);
+
+    return 0;
+}
+
+
+Oto kompletny plik w formacie Markdown. Zawiera on wszystko: wstęp teoretyczny, szczegółowe wyjaśnienia każdego rozwiązania, pełny kod źródłowy w C oraz podsumowanie (ściągę).
+
+Możesz skopiować całość i wkleić bezpośrednio do pliku README.md lub SOLUTIONS.md na GitHubie.
+
+Markdown
+
+# Rozwiązania Zadań: Programowanie Systemowe w C (Linux/Unix)
+
+Ten dokument zawiera rozwiązania trzech zadań dotyczących niskopoziomowych operacji na plikach, komunikacji międzyprocesowej (IPC) przy użyciu kolejki FIFO oraz analizy struktury katalogów. Każde rozwiązanie opatrzone jest szczegółowym komentarzem wyjaśniającym działanie kodu.
+
+---
+
+## Zadanie 1: Konfigurator z uprawnieniami (File I/O & Permissions)
+
+**Cel:** Program pobiera od użytkownika poziom dostępu, nazwę parametru i wartość, a następnie zapisuje to do odpowiedniego pliku konfiguracyjnego, ustawiając mu specyficzne uprawnienia systemowe (`chmod`).
+
+### Wyjaśnienie rozwiązania
+1.  **Bezpieczne wejście (`fgets`):** Użyto `fgets` zamiast `scanf`, aby bezpiecznie wczytać całą linię tekstu i uniknąć przepełnienia bufora. Funkcja `strcspn` służy do usunięcia znaku nowej linii (`\n`), który `fgets` dołącza do stringa.
+2.  **Wybór pliku:** Na podstawie wpisanego poziomu (`system`, `user`, `temp`) program dobiera nazwę pliku i uprawnienia w systemie ósemkowym (np. `0600` – tylko właściciel).
+3.  **Zmiana uprawnień (`chmod`):** Po zapisaniu danych, funkcja systemowa `chmod` ustawia uprawnienia pliku na poziomie systemu plików.
+
+### Kod źródłowy (zad1.c)
+
+```c
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+int main() {
+    char level[50];
+    char param[100];
+    char value[300];
+
+    /* 1. Pobranie danych wejściowych */
+    if (!fgets(level, sizeof(level), stdin)) return 1;
+    if (!fgets(param, sizeof(param), stdin)) return 1;
+    if (!fgets(value, sizeof(value), stdin)) return 1;
+
+    /* 2. Usuwanie znaków nowej linii */
+    level[strcspn(level, "\n")] = 0;
+    param[strcspn(param, "\n")] = 0;
+    value[strcspn(value, "\n")] = 0;
+
+    char filename[50];
+    mode_t permissions;
+
+    /* 3. Rozpoznanie poziomu dostępu */
+    if (strcmp(level, "system") == 0) {
+        strcpy(filename, "config_system.cfg");
+        permissions = 0644; // rw-r--r--
+    } else if (strcmp(level, "user") == 0) {
+        strcpy(filename, "config_user.cfg");
+        permissions = 0600; // rw-------
+    } else if (strcmp(level, "temp") == 0) {
+        strcpy(filename, "config_temp.cfg");
+        permissions = 0666; // rw-rw-rw-
+    } else {
+        fprintf(stderr, "Błąd: nieprawidłowy poziom dostępu\n");
+        return 1;
+    }
+
+    /* 4. Otwarcie pliku (append) */
+    FILE *f = fopen(filename, "a");
+    if (!f) {
+        perror("Błąd otwarcia pliku");
+        return 1;
+    }
+
+    /* 5. Zapis do pliku */
+    fprintf(f, "%s=%s\n", param, value);
+    fclose(f);
+
+    /* 6. Ustawienie uprawnień */
+    if (chmod(filename, permissions) != 0) {
+        fprintf(stderr, "Ostrzeżenie: nie udało się ustawić uprawnień\n");
+    }
+
+    printf("Zapisano parametr do pliku %s z uprawnieniami %o\n", filename, permissions);
+
+    return 0;
+}
+Zadanie 2: Komunikator FIFO (Named Pipes)
+Cel: Implementacja prostego czatu jednokierunkowego. Program może działać w trybie nadawcy (send) lub odbiorcy (receive), wykorzystując potok nazwany (FIFO) do przesyłania danych.
+
+Wyjaśnienie rozwiązania
+Potok nazwany (mkfifo): Tworzony jest plik specjalny, który działa jak rura. Dane zapisane z jednej strony natychmiast pojawiają się z drugiej, nie trafiając na dysk.
+
+Synchronizacja (open): To kluczowy moment. Funkcja open jest blokująca.
+
+Nadawca otwierający plik do zapisu (O_WRONLY) zawiśnie, dopóki odbiorca nie otworzy go do odczytu.
+
+To zapewnia, że nikt nie pisze w "próżnię".
+
+Low-level I/O: Używamy funkcji systemowych read i write na surowych deskryptorach plików, co jest standardem przy obsłudze potoków w C.
+
+Wykrycie końca: read zwraca 0 tylko wtedy, gdy druga strona zamknie połączenie (np. nadawca zakończy program).
+
+Kod źródłowy (zad2.c)
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <unistd.h>
+
+#define FIFO_PATH "ipc/messages.fifo"
+#define DIR_PATH "ipc"
+#define ARCHIVE_PATH "ipc/archive.txt"
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        fprintf(stderr, "Użycie: program [send|receive]\n");
+        return 1;
+    }
+
+    int is_send = 0, is_receive = 0;
+
+    if (strcmp(argv[1], "send") == 0) is_send = 1;
+    else if (strcmp(argv[1], "receive") == 0) is_receive = 1;
+    else {
+        fprintf(stderr, "Użycie: program [send|receive]\n");
+        return 1;
+    }
+
+    /* 1. Przygotowanie środowiska */
+    if (mkdir(DIR_PATH, 0777) != 0) {
+        if (errno != EEXIST) { perror("mkdir"); return 1; }
+    }
+
+    if (mkfifo(FIFO_PATH, 0666) != 0) {
+        if (errno != EEXIST) { perror("mkfifo"); return 1; }
+    }
+
+    printf("Oczekiwanie na połączenie...\n");
+
+    /* --- Tryb SEND --- */
+    if (is_send) {
+        int fd = open(FIFO_PATH, O_WRONLY); // Blokuje do momentu podłączenia odbiorcy
+        if (fd < 0) { perror("open"); return 1; }
+
+        char msg[512];
+        while (1) {
+            printf("Podaj wiadomość: ");
+            if (!fgets(msg, sizeof(msg), stdin)) break;
+            msg[strcspn(msg, "\n")] = 0;
+
+            if (write(fd, msg, strlen(msg) + 1) < 0) {
+                perror("write");
+            }
+            printf("Wysłano: %s\n", msg);
+            if (strcmp(msg, "EXIT") == 0) break;
+        }
+        close(fd);
+    }
+    /* --- Tryb RECEIVE --- */
+    else if (is_receive) {
+        int fd = open(FIFO_PATH, O_RDONLY); // Blokuje do momentu podłączenia nadawcy
+        if (fd < 0) { perror("open"); return 1; }
+
+        FILE *archive = fopen(ARCHIVE_PATH, "a");
+        if (!archive) { perror("fopen"); close(fd); return 1; }
+
+        char buffer[512];
+        int count = 0;
+
+        while (1) {
+            ssize_t n = read(fd, buffer, sizeof(buffer));
+            if (n < 0) { perror("read"); break; }
+            if (n == 0) break; // Koniec połączenia (EOF)
+
+            buffer[n] = 0;
+            count++;
+            
+            printf("Wiadomość %d: %s\n", count, buffer);
+            fprintf(archive, "%d %s\n", count, buffer);
+
+            if (strcmp(buffer, "EXIT") == 0) {
+                count--;
+                break;
+            }
+        }
+        printf("Odebrano %d wiadomości\n", count);
+        fclose(archive);
+        close(fd);
+    }
+    return 0;
+}
+
+
+
+
+
+
+
+Zadanie 3: Analizator Katalogów (Directory Scanning)
+Cel: Program analizuje podany katalog, zlicza rodzaje plików (zwykłe, katalogi, dowiązania) i tworzy raport. Kluczowe jest rozróżnienie między plikiem a dowiązaniem do niego.
+
+Wyjaśnienie rozwiązania
+Przeglądanie katalogu: Użyto funkcji opendir i pętli z readdir do pobrania kolejnych wpisów w katalogu.
+
+lstat vs stat: Użyto lstat zamiast stat.
+
+stat podąża za dowiązaniami (zwraca info o pliku docelowym).
+
+lstat zwraca info o samym dowiązaniu. Jest to niezbędne, by wykryć S_ISLNK.
+
+Makrodefinicje: Typ pliku sprawdza się makrami S_ISREG (plik), S_ISDIR (katalog), S_ISLNK (link).
+
+Czytanie linków: Funkcja readlink pobiera ścieżkę, na którą wskazuje link. Ważne: readlink nie dodaje zera na końcu stringa, trzeba to zrobić ręcznie.
+
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+
+#define REPORT_FILE "raport.txt"
+#define MAX_PATH 4096
+#define MAX_LINK 4096
+
+int main() {
+    char path[MAX_PATH];
+
+    if (!fgets(path, sizeof(path), stdin)) {
+        fprintf(stderr, "Błąd: nie podano ścieżki\n");
+        return 1;
+    }
+    path[strcspn(path, "\n")] = 0;
+
+    printf("Analizuję katalog: %s\n", path);
+
+    DIR *dir = opendir(path);
+    if (!dir) { perror("opendir"); return 1; }
+
+    struct dirent *entry;
+    struct stat st;
+    char fullpath[MAX_PATH];
+
+    int count_reg = 0, count_dir = 0, count_lnk = 0, count_other = 0;
+    long long total_size = 0;
+
+    typedef struct {
+        char name[MAX_PATH];
+        char target[MAX_LINK];
+    } link_info;
+
+    link_info links[512];
+    int link_count = 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
+
+        /* Użycie lstat jest kluczowe dla wykrywania linków */
+        if (lstat(fullpath, &st) != 0) {
+            fprintf(stderr, "Błąd odczytu: %s\n", fullpath);
+            continue;
+        }
+
+        if (S_ISREG(st.st_mode)) {
+            count_reg++;
+            total_size += st.st_size;
+        } else if (S_ISDIR(st.st_mode)) {
+            count_dir++;
+        } else if (S_ISLNK(st.st_mode)) {
+            count_lnk++;
+            
+            char target[MAX_LINK];
+            ssize_t len = readlink(fullpath, target, sizeof(target) - 1);
+            if (len < 0) strcpy(target, "???");
+            else target[len] = 0;
+
+            strcpy(links[link_count].name, entry->d_name);
+            strcpy(links[link_count].target, target);
+            link_count++;
+        } else {
+            count_other++;
+        }
+    }
+    closedir(dir);
+
+    /* Generowanie raportu */
+    FILE *report = fopen(REPORT_FILE, "w");
+    if (!report) { perror("fopen"); return 1; }
+
+    fprintf(report, "RAPORT Z ANALIZY KATALOGU\n");
+    fprintf(report, "Katalog: %s\n\n", path);
+    fprintf(report, "Statystyki:\n");
+    fprintf(report, "Zwykłe pliki: %d\n", count_reg);
+    fprintf(report, "Katalogi: %d\n", count_dir);
+    fprintf(report, "Dowiązania symboliczne: %d\n", count_lnk);
+    fprintf(report, "Inne: %d\n\n", count_other);
+    fprintf(report, "Łączny rozmiar zwykłych plików: %lld bajtów\n\n", total_size);
+    
+    fprintf(report, "Lista dowiązań symbolicznych:\n");
+    for (int i = 0; i < link_count; i++) {
+        fprintf(report, "%s -> %s\n", links[i].name, links[i].target);
+    }
+    fclose(report);
+
+    printf("Raport zapisano do pliku %s\n", REPORT_FILE);
+    return 0;
+}
+
+
+Funkcja,Biblioteka,Opis
+fopen / fclose,<stdio.h>,"Wysokopoziomowe otwarcie pliku (z buforowaniem, zwraca FILE*)."
+open / close,<fcntl.h>,"Niskopoziomowe otwarcie (bez buforowania, zwraca int fd)."
+"chmod(path, mode)",<sys/stat.h>,Zmienia uprawnienia pliku (np. 0644).
+opendir / readdir,<dirent.h>,Otwiera strumień katalogu i czyta kolejne wpisy (pliki).
+"lstat(path, &buf)",<sys/stat.h>,Pobiera metadane pliku. Nie podąża za linkami (ważne dla S_ISLNK).
+"stat(path, &buf)",<sys/stat.h>,Pobiera metadane pliku. Podąża za linkami (zwraca info o celu).
+readlink(...),<unistd.h>,Odczytuje cel dowiązania symbolicznego.
+
+
+
+Funkcja,Opis
+"mkfifo(path, mode)",Tworzy nazwany potok w systemie plików.
+Tworzenie:,"mkfifo(""plik.fifo"", 0666);"
+Nadawca:,"fd = open(""plik.fifo"", O_WRONLY); (Blokuje się, aż ktoś zacznie czytać)"
+Odbiorca:,"fd = open(""plik.fifo"", O_RDONLY); (Blokuje się, aż ktoś zacznie pisać)"
+
+
+Nazwa,Znaczenie
+O_RDONLY,Tylko odczyt (używane w open).
+O_WRONLY,Tylko zapis (używane w open).
+S_ISREG(mode),"Sprawdza, czy st_mode oznacza zwykły plik."
+S_ISDIR(mode),"Sprawdza, czy st_mode oznacza katalog."
+S_ISLNK(mode),"Sprawdza, czy st_mode oznacza dowiązanie symboliczne."
