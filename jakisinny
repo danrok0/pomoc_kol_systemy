@@ -1,0 +1,187 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+
+// Definicja zmiennych globalnych
+int bufor;
+int ready = 0; // Flaga gotowości (0 - fałsz, 1 - prawda)
+
+// Inicjalizacja muteksu i zmiennej warunkowej
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
+// Funkcja wątku potomnego ("Konsument")
+void* konsument(void* arg) {
+    // 1. Zablokuj muteks
+    pthread_mutex_lock(&mutex);
+
+    // 2. Oczekiwanie na zmiennej warunkowej (pętla while chroni przed "spurious wakeups")
+    while (ready == 0) {
+        pthread_cond_wait(&cond, &mutex);
+    }
+
+    // 3. Po obudzeniu i ponownym zablokowaniu muteksu, wykonaj pracę
+    printf("Konsument: Odebralem %d\n", bufor);
+    printf("Konsument: Wynik %d\n", bufor * 2);
+
+    // 4. Odblokuj muteks
+    pthread_mutex_unlock(&mutex);
+    
+    return NULL;
+}
+
+int main() {
+    int dane;
+    // Wczytanie liczby całkowitej
+    if (scanf("%d", &dane) != 1) {
+        return 1; // Błąd wczytywania
+    }
+
+    pthread_t t_id;
+
+    // Uruchomienie wątku konsumenta
+    if (pthread_create(&t_id, NULL, konsument, NULL) != 0) {
+        perror("Błąd tworzenia wątku");
+        return 1;
+    }
+
+    // Symulacja krótkiego czasu lub operacji (opcjonalne, dla pewności sekwencji)
+    usleep(1000); 
+
+    // Wątek główny ("Producent")
+    
+    // 1. Zablokuj muteks przed modyfikacją danych współdzielonych
+    pthread_mutex_lock(&mutex);
+
+    // 2. Zapisz dane i ustaw flagę
+    bufor = dane;
+    ready = 1;
+    
+    // 3. Wypisz komunikat i zasygnalizuj
+    printf("Producent: Dane gotowe\n");
+    pthread_cond_signal(&cond); // Obudź wątek czekający na zmiennej warunkowej
+
+    // 4. Odblokuj muteks
+    pthread_mutex_unlock(&mutex);
+
+    // Oczekiwanie na zakończenie wątku konsumenta
+    pthread_join(t_id, NULL);
+
+    // Sprzątanie (opcjonalne w tak krótkim programie, ale dobra praktyka)
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond);
+
+    return 0;
+}
+
+
+Kluczowe elementy rozwiązania
+Zmienne globalne: bufor przechowuje dane, a ready służy jako predykat (warunek) logiczny. Muteks chroni dostęp do tych zmiennych, aby uniknąć wyścigów (race conditions).
+
+pthread_cond_wait: Wątek konsumenta wchodzi do tej funkcji z zablokowanym muteksem. Funkcja ta atomowo (niepodzielnie) odblokowuje muteks i usypia wątek. Gdy wątek zostanie obudzony (przez signal), funkcja ta automatycznie ponownie blokuje muteks przed powrotem.
+
+Pętla while (ready == 0): Jest to standardowy wzorzec. Używamy pętli while zamiast if, aby zabezpieczyć się przed tzw. spurious wakeups (sytuacja, gdy wątek budzi się bez wyraźnego sygnału) oraz aby upewnić się, że warunek logiczny jest rzeczywiście spełniony po odzyskaniu muteksu.
+
+pthread_cond_signal: Producent używa tej funkcji, aby powiadomić system operacyjny, że należy obudzić wątek czekający na tej konkretnej zmiennej warunkowej.
+
+Jak skompilować i uruchomić?
+Ponieważ biblioteka pthread nie jest domyślnie linkowana w niektórych systemach (np. Linux), należy użyć flagi -pthread:
+
+Bash
+
+gcc main.c -o program -pthread
+./program
+Przykładowe uruchomienie: Po wpisaniu 10:
+
+Plaintext
+
+Producent: Dane gotowe
+Konsument: Odebralem 10
+Konsument: Wynik 20
+
+
+
+
+
+
+
+
+
+
+
+
+
+1. Analogie (Jak to zrozumieć na chłopski rozum)
+Wyobraź sobie pokój (Sekcja Krytyczna), w którym jest skrzynka na listy (Bufor).
+
+Muteks to klucz do pokoju. Tylko jedna osoba może być w środku.
+
+Konsument to osoba, która czeka na list.
+
+Producent to listonosz.
+
+Zmienna warunkowa (cond) to kanapa w pokoju.
+
+Scenariusz:
+
+Konsument wchodzi do pokoju (zamyka drzwi na klucz). Patrzy do skrzynki – pusta.
+
+Zamiast stać i gapić się w pustą skrzynkę, siada na kanapie (idzie spać) i, co najważniejsze, odkłada klucz na stół (zwalnia muteks), żeby listonosz mógł wejść.
+
+Producent (listonosz) bierze klucz, wchodzi, wrzuca list do skrzynki, ustawia flagę "jest list" i dzwoni dzwonkiem (signal), żeby obudzić śpiącego. Potem wychodzi i oddaje klucz.
+
+Konsument budzi się na dźwięk dzwonka. Jak tylko listonosz wyjdzie, Konsument automatycznie znowu bierze klucz, sprawdza skrzynkę (jest list!), bierze go i wychodzi.
+
+2. Wyjaśnienie techniczne (Co mówić przy kodzie)
+Podzielmy kod na etapy. To są punkty, które możesz wskazać palcem na ekranie.
+
+A. Przygotowanie (Zmienne globalne)
+Mamy mutex (ochrona danych) i cond (zmienna warunkowa do usypiania). Mamy też ready – to tzw. predykat (warunek), który mówi nam, czy dane są gotowe.
+
+B. Wątek Konsumenta (void* konsument)
+To najważniejsza część.
+
+pthread_mutex_lock(&mutex);
+
+Co mówisz: "Wątek konsumenta najpierw zajmuje muteks, aby bezpiecznie sprawdzić stan zmiennej ready."
+
+while (ready == 0) { pthread_cond_wait(&cond, &mutex); }
+
+To jest kluczowe! Co mówisz: "Tu dzieje się magia. Sprawdzam, czy dane są gotowe. Jeśli nie (ready == 0), wywołuję pthread_cond_wait. Ta funkcja robi atomowo dwie rzeczy: zwalnia muteks i usypia wątek w oczekiwaniu na sygnał. Dzięki temu nie zużywamy procesora (brak aktywnego oczekiwania)."
+
+Pytanie pułapka: Dlaczego pętla while, a nie if?
+
+Odpowiedź: "Chronimy się przed tzw. wybudzeniami rzekomymi (spurious wakeups). System operacyjny może czasem obudzić wątek bez powodu, więc po obudzeniu musimy upewnić się, że ready naprawdę jest równe 1."
+
+printf... i pthread_mutex_unlock
+
+Co mówisz: "Po otrzymaniu sygnału i wyjściu z pętli, wątek ma ponownie zablokowany muteks. Pobiera dane, wypisuje wynik i na końcu zwalnia blokadę."
+
+C. Wątek Główny / Producent (main)
+pthread_mutex_lock(&mutex);
+
+Co mówisz: "Producent też musi zająć muteks, bo modyfikuje zmienne współdzielone (bufor i ready)."
+
+bufor = dane; ready = 1;
+
+Co mówisz: "Zapisujemy dane i zmieniamy flagę gotowości."
+
+pthread_cond_signal(&cond);
+
+Co mówisz: "Wysyłamy sygnał do wątku oczekującego na zmiennej warunkowej, żeby się obudził."
+
+pthread_mutex_unlock(&mutex);
+
+Co mówisz: "Zwalniamy muteks. Dopiero teraz obudzony konsument będzie mógł fizycznie ruszyć dalej (bo wait w konsumencie próbuje odzyskać ten muteks)."
+
+Słowniczek (Do "szpanowania" wiedzą):
+Sekcja krytyczna: Fragment kodu, gdzie działamy na wspólnych danych (musi być chroniony muteksem).
+
+Atomowość: Operacja niepodzielna (nikt nie może nam przerwać w połowie).
+
+Spurious wakeup (Wybudzenie rzekome): Sytuacja, gdy wątek budzi się z wait mimo braku sygnału signal. Dlatego zawsze używamy pętli while.
+
+Race condition (Wyścig): Błąd, którego tu unikamy dzięki muteksom – gdy dwa wątki biją się o dane i wynik zależy od tego, kto będzie szybszy.
+
+Czy takie wyjaśnienie jest jasne? Możesz sobie to przećwiczyć, czytając kod linijka po linijce.
