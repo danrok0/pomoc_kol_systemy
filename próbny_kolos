@@ -1,0 +1,212 @@
+Instrukcja kompilacji i uruchomienia
+Dla programów w C użyj polecenia podanego w nagłówku zadania:
+
+Bash
+
+gcc -Wall -pthread -std=c99 task2.c -o task2
+gcc -Wall -pthread -std=c99 task3.c -o task3
+Dla skryptu Bash pamiętaj o nadaniu uprawnień wykonywania: chmod +x task1.sh.
+
+Zadanie 1: Skrypt Bash (FIFO i Podpowłoki)
+Plik: task1.sh
+
+Celem jest synchronizacja między podpowłoką (działającą w tle) a procesem głównym za pomocą potoku nazwanego.
+
+Bash
+
+#!/bin/bash
+
+# 1. Utwórz potok nazwany
+PIPE="kolejka_danych"
+
+# Sprawdź czy potok już istnieje, jeśli nie - stwórz go
+if [[ ! -p $PIPE ]]; then
+    mkfifo $PIPE
+fi
+
+# 2. Uruchom podpowłokę (subshell) w tle
+(
+    # 3. Wewnątrz podpowłoki: odczekaj 2 sekundy i wyślij tekst
+    sleep 2
+    echo "SYSTEM_OK" > $PIPE
+) & 
+
+# Pobranie PID procesu w tle (opcjonalnie, do celów debugowania)
+BG_PID=$!
+
+# 4. W głównym procesie: odczytaj dane, zamień na małe litery i wyświetl
+# Odczyt z potoku zablokuje skrypt do momentu, aż podpowłoka coś do niego wpisze
+read line < $PIPE
+
+# Zamiana na małe litery (używając tr dla przenośności)
+output=$(echo "$line" | tr '[:upper:]' '[:lower:]')
+
+echo "Odebrano status: $output"
+
+# 5. Posprzątaj (usuń plik potoku)
+rm $PIPE
+Wyjaśnienie:
+
+mkfifo: Tworzy plik specjalny (FIFO).
+
+( ... ) &: Nawiasy tworzą podpowłokę, a & wrzuca ją w tło. Dzięki temu sleep 2 nie blokuje głównego skryptu, ale blokuje go dopiero próba odczytu (read).
+
+read < $PIPE: Skrypt czeka w tym miejscu, aż proces w tle zakończy sleep i wpisze dane do potoku.
+
+Zadanie 2: Program C (Procesy i Wait)
+Plik: task2.c
+
+Program symuluje mechanizm "Watchdog", który nadzoruje proces potomny i reaguje na jego kod wyjścia.
+
+C
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+
+int main() {
+    // 1. Proces główny uruchamia proces potomny
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("Błąd fork");
+        return 1;
+    }
+
+    if (pid == 0) {
+        // --- PROCES WORKER (DZIECKO) ---
+        // 2. Pobiera swój PID
+        int my_pid = getpid();
+        
+        // Logika decyzyjna: modulo 3
+        if (my_pid % 3 == 0) {
+            exit(0); // Sukces
+        } else {
+            exit(1); // Błąd
+        }
+    } else {
+        // --- PROCES WATCHDOG (RODZIC) ---
+        int status;
+        
+        // 3. Czeka na zakończenie Workera
+        wait(&status);
+
+        // 4. Analiza statusu zakończenia
+        if (WIFEXITED(status)) {
+            int exit_status = WEXITSTATUS(status);
+
+            if (exit_status == 1) {
+                // Worker zgłosił błąd
+                printf("Awaria procesu %d. Restart...\n", pid);
+            } else {
+                // Sukces (zakładamy kod 0, ale else łapie wszystko inne niż 1)
+                printf("Proces %d zakonczony poprawnie\n", pid);
+            }
+        }
+    }
+
+    return 0;
+}
+Wyjaśnienie:
+
+fork(): Tworzy nową instancję procesu. Zwraca 0 w dziecku i PID dziecka w rodzicu.
+
+exit(0) vs exit(1): Sposób przekazania informacji z dziecka do rodzica.
+
+wait(&status): Rodzic jest zawieszony do momentu zakończenia dziecka.
+
+WIFEXITED i WEXITSTATUS: Makra niezbędne do wyciągnięcia faktycznego kodu powrotu (0 lub 1) z surowej zmiennej status.
+
+Zadanie 3: Program C (Wątki + Mutex + Fork)
+Plik: task3.c
+
+To zadanie łączy wielowątkowość (pamięć współdzielona) z wieloprocesowością (kopiowanie pamięci przy fork). Kluczowe jest zabezpieczenie zmiennej globalnej mutexem.
+
+C
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/wait.h>
+
+// 1. Zdefiniuj zmienną globalną i mutex
+int balance = 1000;
+pthread_mutex_t lock;
+
+// Funkcja wykonywana przez wątki
+void* thread_function(void* arg) {
+    for (int i = 0; i < 50; i++) {
+        // 3. SEKCJA KRYTYCZNA - początek
+        pthread_mutex_lock(&lock);
+        
+        balance = balance - 10;
+        
+        pthread_mutex_unlock(&lock);
+        // SEKCJA KRYTYCZNA - koniec
+    }
+    return NULL;
+}
+
+int main() {
+    // Inicjalizacja mutexa
+    if (pthread_mutex_init(&lock, NULL) != 0) {
+        perror("Błąd inicjalizacji mutexa");
+        return 1;
+    }
+
+    // 2. Utwórz 3 wątki
+    pthread_t threads[3];
+    for (int i = 0; i < 3; i++) {
+        if (pthread_create(&threads[i], NULL, thread_function, NULL) != 0) {
+            perror("Błąd tworzenia wątku");
+            return 1;
+        }
+    }
+
+    // 4. Czekaj na zakończenie wszystkich wątków (join)
+    for (int i = 0; i < 3; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    // Wypisanie komunikatu przez rodzica (zgodnie z outputem oczekiwanym)
+    printf("[Rodzic] Wszystkie watki zakonczone.\n");
+
+    // 5. Dopiero po złączeniu wątków wywołaj fork()
+    pid_t pid = fork();
+
+    if (pid < 0) {
+        perror("Błąd fork");
+        return 1;
+    }
+
+    if (pid == 0) {
+        // --- PROCES POTOMNY ---
+        // 6. Sprawdza końcowy stan konta
+        // Oczekiwany wynik: 1000 - (3 wątki * 50 iteracji * 10 odejmowania) = 1000 - 1500 = -500
+        
+        if (balance == -500) {
+            printf("[Potomek] Stan konta: %d. Bilans zgodny.\n", balance);
+        } else {
+            printf("[Potomek] Blad synchronizacji! Stan konta: %d\n", balance);
+        }
+    } else {
+        // Proces rodzica - czekamy na potomka (dobra praktyka),
+        // choć treść zadania nie wymaga explicite waita tutaj, warto to zrobić.
+        wait(NULL);
+        
+        // Sprzątanie po mutexie (tylko w procesie rodzica, bo wątki działały tutaj)
+        pthread_mutex_destroy(&lock);
+    }
+
+    return 0;
+}
+Wyjaśnienie:
+
+Race Condition: Bez pthread_mutex_lock wątki jednocześnie czytałyby i pisały do balance, co spowodowałoby błędny wynik (np. -480 zamiast -500). To jest "błąd krytyczny" punktowany na -20 pkt, więc mutex jest tu najważniejszy.
+
+Kolejność: Najpierw pthread_join, potem fork. Jeśli zrobisz fork w trakcie działania wątków, zachowanie programu może być niezdefiniowane (wątki nie są kopiowane do dziecka w standardowy sposób POSIX).
+
+Wynik: Dziecko dziedziczy stan pamięci rodzica w momencie forka. Skoro rodzic (dzięki wątkom) zmodyfikował balance do -500, dziecko "widzi" tę wartość.
