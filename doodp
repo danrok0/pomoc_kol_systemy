@@ -1,0 +1,188 @@
+1. Dlaczego potrzebne są makra WIFEXITED i WEXITSTATUS?
+Gdy proces potomny (dziecko) kończy działanie funkcją exit(5), system operacyjny nie przekazuje tej liczby 5 bezpośrednio do rodzica w czystej postaci.
+
+Zmienna status w funkcji wait(&status) to tak naprawdę walizka (kontener bitowy), w której system upycha mnóstwo informacji:
+
+Czy proces zakończył się normalnie, czy został zabity (np. przez błąd pamięci)?
+
+Jaki sygnał go zabił?
+
+Czy utworzono zrzut pamięci (core dump)?
+
+I wreszcie: jaki był kod wyjścia (nasze 5)?
+
+Co by było bez makr? W systemie Linux liczba statusu jest często przesunięta bitowo. Jeśli dziecko zrobi exit(1), to surowa wartość zmiennej status może wynosić 256 (binarnie: 00000001 00000000).
+
+Gdybyś napisał:
+
+C
+
+wait(&status);
+if (status == 1) { ... } // TO NIE ZADZIAŁA!
+Warunek będzie fałszywy, bo 256 != 1.
+
+Jak działają makra:
+
+WIFEXITED(status): To pytanie: "Czy proces umarł śmiercią naturalną (przez exit lub return), czy został zamordowany przez system?". Tylko jeśli to prawda, ma sens sprawdzanie kodu wyjścia.
+
+WEXITSTATUS(status): To "rozpakowanie walizki". Makro odcina śmieci, przesuwa bity na właściwe miejsce i wyciąga tę konkretną liczbę, którą wpisałeś w exit().
+
+2. Jaki jest cel sleep (czekania) w tych kodach?
+W Zadaniu 1 (Bash) sleep 2 pełni kluczową rolę edukacyjną i testową:
+
+Symulacja opóźnienia: W prawdziwym życiu obliczenia trwają. Chcemy pokazać, że program główny nie "panikuje", gdy danych jeszcze nie ma, tylko grzecznie czeka.
+
+Dowód na synchronizację:
+
+Uruchamiasz skrypt.
+
+Skrypt główny dochodzi do linii read (odczyt z potoku).
+
+Ponieważ "podpowłoka" śpi przez 2 sekundy, potok jest pusty.
+
+Widzisz, że terminal "wisi" przez 2 sekundy. To dowód, że mechanizm FIFO (Named Pipe) blokuje proces czytający do momentu pojawienia się danych. Gdyby nie sleep, wszystko stałoby się tak szybko, że nie zauważyłbyś, czy blokada faktycznie działa.
+
+W Zadaniach 2 i 3 (C) sleep nie był wymagany w rozwiązaniu, ale często dodaje się go w wątkach (usleep), żeby wymusić "wyścig" (Race Condition) i sprawdzić, czy Mutexy na pewno działają. Bez opóźnień komputery są tak szybkie, że czasem błąd synchronizacji nie zdąży wystąpić.
+
+3. Jak dokładnie działa pid_t pid = fork()?
+To jest najtrudniejszy moment do zrozumienia, bo łamie intuicję "jedna linijka = jedna akcja".
+
+Przed fork(): Masz jeden proces (jeden program działający w pamięci).
+
+W momencie fork(): System operacyjny robi "Kserokopię" całego procesu. Kopiuje kod, zmienne, aktualny stan licznika rozkazów.
+
+Po fork(): Masz teraz dwa identyczne procesy, które stoją w dokładnie tej samej linijce kodu (zaraz za wywołaniem funkcji).
+
+Skąd wiedzą kim są? (Zmienna pid) Funkcja fork() jest magiczna – zwraca inną wartość w zależności od tego, w której "kopii" się obudziła.
+
+W procesie RODZICA (oryginał): System mówi: "Hej, stworzyłem ci klona. Jego numer ID (PID) to 12345. Masz tu ten numer, żebyś mógł go pilnować." -> Zmienna pid przyjmuje wartość 12345 ( > 0).
+
+W procesie DZIECKA (kopia): System mówi: "Hej, jesteś nowym procesem. Nie masz dzieci. Dla ciebie kod to 0." -> Zmienna pid przyjmuje wartość 0.
+
+Dalsze operacje:
+
+C
+
+if (pid == 0) {
+    // Komputer wchodzi tutaj TYLKO jeśli jest dzieckiem
+    // Rodzic widzi, że pid to 12345, więc pomija ten blok
+} else {
+    // Komputer wchodzi tutaj TYLKO jeśli jest rodzicem
+    // Dziecko widzi, że pid to 0, więc pomija ten blok
+}
+Dzięki temu jeden kod źródłowy steruje dwoma niezależnymi bytami.
+
+4. Dlaczego perror, a nie printf?
+perror("Tekst błędu") robi dwie rzeczy naraz:
+
+Wypisuje Twój tekst ("Tekst błędu").
+
+Automatycznie dokleja systemowy opis błędu.
+
+W systemie jest globalna zmienna errno, która ustawia się, gdy funkcja systemowa (jak fork, mkfifo) zawiedzie.
+
+Jeśli użyjesz printf("Błąd"), zobaczysz tylko: Błąd. Nie wiesz dlaczego.
+
+Jeśli użyjesz perror("Błąd"), a dysk jest pełny, zobaczysz: Błąd: No space left on device.
+
+Jeśli użyjesz perror("Błąd"), a nie masz uprawnień, zobaczysz: Błąd: Permission denied.
+
+To kluczowe przy debugowaniu (szukaniu usterek).
+
+5. Dlaczego używamy $PIPE w Bashu?
+Linia PIPE="kolejka_danych" tworzy zmienną. Użycie $PIPE zamiast wpisywania wszędzie ręcznie słowa kolejka_danych to tzw. Dobra Praktyka Programistyczna (DRY - Don't Repeat Yourself).
+
+Jeśli wpiszesz nazwę pliku ręcznie w 5 miejscach (tworzenie, zapis, odczyt, usuwanie, sprawdzanie) i zrobisz literówkę w jednym (np. kolejka_danyc), skrypt przestanie działać.
+
+Używając zmiennej, zmieniasz nazwę tylko w pierwszej linii, a reszta skryptu "wie", o jaki plik chodzi.
+
+6. Szczegółowe wytłumaczenie kodu z Zadania 3
+Przeanalizujmy to linia po linii pod kątem "co i dlaczego".
+
+C
+
+// Zmienne globalne - są poza main(), żeby WSZYSTKIE wątki je widziały.
+int balance = 1000;
+pthread_mutex_t lock; // Obiekt kłódki/zamka
+
+void* thread_function(void* arg) {
+    for (int i = 0; i < 50; i++) {
+        // --- SEKCJA KRYTYCZNA START ---
+        // Wątek próbuje zamknąć kłódkę.
+        // Jeśli kłódka jest otwarta -> zamyka ją i wchodzi.
+        // Jeśli kłódka jest zamknięta (inny wątek jest w środku) -> CZEKA tutaj (blokuje się).
+        pthread_mutex_lock(&lock); 
+
+        // Operacja na wspólnej pamięci. Bez kłódki wątki wchodziłyby sobie w słowo.
+        // Np. Wątek 1 czyta 1000, Wątek 2 czyta 1000. Oba odejmują 10. Oba zapisują 990.
+        // Straciliśmy jedno odejmowanie! Z kłódką to niemożliwe.
+        balance = balance - 10;
+        
+        // Otwieramy kłódkę. Teraz inny czekający wątek może wejść.
+        pthread_mutex_unlock(&lock);
+        // --- SEKCJA KRYTYCZNA STOP ---
+    }
+    return NULL;
+}
+
+int main() {
+    // Musimy przygotować mutex przed użyciem.
+    pthread_mutex_init(&lock, NULL);
+
+    pthread_t threads[3]; // Tablica na identyfikatory wątków
+
+    // Pętla uruchamiająca 3 wątki
+    for (int i = 0; i < 3; i++) {
+        // pthread_create:
+        // 1. Gdzie zapisać ID wątku? (&threads[i])
+        // 2. Atrybuty domyślne (NULL)
+        // 3. Jaka funkcja ma się wykonać? (thread_function)
+        // 4. Argumenty dla funkcji? (NULL - brak)
+        pthread_create(&threads[i], NULL, thread_function, NULL);
+    }
+
+    // Pętla czekająca (JOIN)
+    // To jest BARDZO WAŻNE. Main nie może iść dalej, dopóki wątki nie skończą liczyć.
+    // Bez tego fork() mógłby skopiować zmienną 'balance' w połowie liczenia (np. 850 zamiast -500).
+    for (int i = 0; i < 3; i++) {
+        pthread_join(threads[i], NULL);
+    }
+    
+    // W tym momencie mamy pewność:
+    // 1. Wszystkie wątki zniknęły.
+    // 2. Zmienna 'balance' ma ostateczną wartość.
+    printf("[Rodzic] Wszystkie watki zakonczone.\n");
+
+    // Dopiero teraz robimy podział procesu!
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        // Jesteśmy w procesie potomnym.
+        // Ten proces dostał kopię pamięci rodzica Z MOMENTU FORKA.
+        // Czyli 'balance' w dziecku wynosi tyle, ile wyliczyły wątki w rodzicu.
+        
+        // Sprawdzamy matematykę: 1000 - (3 wątki * 50 pętli * 10 odejmowania) = -500
+        if (balance == -500) {
+            printf("[Potomek] Stan konta: %d. Bilans zgodny.\n", balance);
+        } else {
+            // Jeśli tu wejdziemy, to znaczy, że zapomniałeś o mutexie w wątkach!
+            printf("[Potomek] Blad synchronizacji! Stan konta: %d\n", balance);
+        }
+    } else {
+        // Rodzic czeka na dziecko, żeby posprzątać.
+        wait(NULL);
+        // Niszczymy mutex, bo już nie jest potrzebny.
+        pthread_mutex_destroy(&lock);
+    }
+
+    return 0;
+}
+Podsumowanie przepływu danych w Zadaniu 3:
+
+Jeden proces, 3 wątki -> "biją się" o zmienną balance, ale sędzia (Mutex) pilnuje kolejności.
+
+Koniec wątków -> zmienna balance jest przeliczona (wynosi -500).
+
+Fork -> powstaje kopia procesu z wartością -500 w pamięci.
+
+Dziecko -> sprawdza, czy wartość to -500.
